@@ -13,8 +13,8 @@ library(ggplot2) ; library(patchwork) # PLOTTING TOOLS
 ### save environment with everything
 # SET DIRECTORY OF DATA INPUT
 
-dir <- "/Volumes/FS/_ISPM/CCH/AnnualTeamProject2026/death data"
-dirout <- "/Volumes/FS/_ISPM/CCH/AnnualTeamProject2026/01_exposure_response_functions/"
+# dir <- "/Volumes/FS/_ISPM/CCH/AnnualTeamProject2026/death data"
+# dirout <- "/Volumes/FS/_ISPM/CCH/AnnualTeamProject2026/01_exposure_response_functions/"
 
 lookup <- fread("/Volumes/FS/_ISPM/CCH/AnnualTeamProject2026/Boundaries_and_shapefiles/Gemeindestand_lookup_districts.csv")
 
@@ -50,12 +50,12 @@ average_dist_district <- matrix(NA, nrow=length(predper), ncol=length(listdistri
 source("01_exposure_response_functions/findmin.R")
 
 #each element include municipalities within each district
-dlist<- split(lookup$`BFS Gde-nummer`, lookup$`Bezirks-nummer`)
+dlist<- split(lookup$`BFS Gde-nummer`, lookup$`Bezirksname`)
 
 
 firststage<-list()
 cp_list <- list()
-coefall <- matrix(NA, nrow=length(dlist), ncol=9)
+coefall <- matrix(NA, nrow=length(dlist), ncol=3)
 vcovall <- list()
 
 
@@ -120,7 +120,7 @@ modfull <- gnm(dcount ~ cbtmean ,
 
 mmti<-findmin(cbtmean, model=modfull, from=quantile(datafull$tmean, 0.25), to=quantile(datafull$tmean, 0.90)) #check the function
 
-cp_list[[i]] <- crosspred(cbtmean, modfull, cen=mmti)
+cp_list[[i]] <- crossreduce(cbtmean, modfull, cen=mmti)
 
 coefall[i,] <-  cp_list[[i]]$coefficients
 vcovall[[i]] <-  cp_list[[i]]$vcov
@@ -140,9 +140,11 @@ names(vcovall) <- names(dlist)
 #Store coefficients and variance-covariance matrices
 firststage <-list(coefall=coefall, vcovall=vcovall)
 
-pdf(paste0("01_exposure_response_functions/firststageplots_bydistricts.pdf"))
+pdf(paste0("01_exposure_response_functions/firststageplots_bydistricts_3days.pdf"))
 for(x in 1:length(cp_list)){
-  plot(cp_list[[x]], "overall")
+  plot(cp_list[[x]],
+       main=paste("First stage",  names(cp_list)[x])
+  )
 }
 dev.off()
 
@@ -153,17 +155,17 @@ saveRDS(firststage, "01_exposure_response_functions/coeffs_vcov_stage1.rds")
 
 # add district numbers to temperature data
 temp14.m <- merge(temp14, lookup%>%
-                    select(Kanton, `BFS Gde-nummer`, `Bezirks-nummer`), by.x="muncode", by.y="BFS Gde-nummer")
+                    select(Kanton, `BFS Gde-nummer`, `Bezirksname`), by.x="muncode", by.y="BFS Gde-nummer")
 # summary(temp14.m)
-# View(temp14.m[is.na(`Bezirks-nummer`)])
+# View(temp14.m[is.na(`Bezirksname`)])
 #
 # #predictors
 temp14.m <- temp14.m[month(date)%in%6:9,]
-avgtmean <- temp14.m[, mean(tmean, na.rm=T), by=c("Bezirks-nummer", "Kanton")]
-rangetmean <- temp14.m[, c("min","max"):= as.list(range(tmean, na.rm=T)), by=c("Bezirks-nummer", "Kanton")]
+avgtmean <- temp14.m[, mean(tmean, na.rm=T), by=c("Bezirksname", "Kanton")]
+rangetmean <- temp14.m[, c("min","max"):= as.list(range(tmean, na.rm=T)), by=c("Bezirksname", "Kanton")]
 
 
-rangetmean <- unique(rangetmean%>%select(`Bezirks-nummer`, min, max))
+rangetmean <- unique(rangetmean%>%select(`Bezirksname`, min, max))
 rangetmean[, rangetmean:=(max-min)]
 
 metavarALL <- cbind(rangetmean, avgtmean[,-1])
@@ -177,11 +179,12 @@ coefmeta <- coefall
 vcovmeta <- vcovall
 
 # mvall <- mixmeta(coefmeta~rangetmean+avgtmean,vcovmeta, metavarALL,
-#                  control=list(showiter=T), random=~1|`Kanton`/`Bezirks-nummer`, method="reml")
+#                  control=list(showiter=T), random=~1|`Kanton`/`Bezirksname`, method="reml")
 mvall <- mixmeta(coefmeta~rangetmean+avgtmean,vcovmeta, metavarALL,
-                 control=list(showiter=T), random=~1|`Bezirks-nummer`, method="reml")
+                 control=list(showiter=T), random=~1|`Bezirksname`, method="reml")
 
-# blup(mvall, se=T, pi=T)
+blup <- blup(mvall, vcov=T)
+names(blup) <- names(cp_list)[1:143]
 #
 # # BLUPS AT district LEVEL FROM TWO-LEVEL MODEL
 # districtblup <- exp(blup(mvall))
@@ -191,7 +194,7 @@ mvall <- mixmeta(coefmeta~rangetmean+avgtmean,vcovmeta, metavarALL,
 
 
 
-saveRDS(mvall, "01_exposure_response_functions/secondstage.rds")
+saveRDS(blup, "01_exposure_response_functions/secondstage.rds")
 
 
 
